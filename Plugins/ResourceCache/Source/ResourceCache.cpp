@@ -30,8 +30,8 @@ class ResourceCacheImpl
         Babylon::JsRuntime& m_runtime;
         Napi::ObjectReference m_jsResourceCache;
         std::atomic<bool> m_jsReady{false};
-        // Queue now stores pairs of (experienceId, jsonString)
-        std::vector<std::pair<std::string, std::string>> m_pendingJsonQueue; 
+        // Queue now uses a map to store only the latest JSON per experienceId
+        std::unordered_map<std::string, std::string> m_pendingJsonQueue; 
         std::mutex m_pendingJsonMutex;
 
     public:
@@ -79,16 +79,16 @@ class ResourceCacheImpl
 
     void ResourceCacheImpl::ProcessPendingJsonQueue(Napi::Env env)
     {
-        std::vector<std::pair<std::string, std::string>> pendingToProcess;
+        std::unordered_map<std::string, std::string> pendingToProcess; // Use map type
         {
             std::scoped_lock lock(m_pendingJsonMutex);
-            pendingToProcess = std::move(m_pendingJsonQueue); // Use the renamed queue
-            m_pendingJsonQueue.clear();
+            pendingToProcess = std::move(m_pendingJsonQueue); // Move map contents
+            m_pendingJsonQueue.clear(); // Ensure queue is empty
         }
 
         if (!pendingToProcess.empty())
         {
-            // Dispatch each pending pair
+            // Dispatch each pending pair from the map
             for (const auto& pair : pendingToProcess)
             {
                 DispatchLoadResourcesFromJSON(env, pair.first, pair.second); // Pass both experienceId and jsonString
@@ -100,14 +100,14 @@ class ResourceCacheImpl
     void ResourceCacheImpl::DispatchLoadResourcesFromJSON(Napi::Env env, const std::string& experienceId, const std::string& jsonString)
     {
         // Call the loadFromJSON method on our cached JS object
-        // Pass experienceId as the third argument to the JS function (adjust JS accordingly)
+        // Pass experienceId as the second argument to the JS function
         m_jsResourceCache.Value().As<Napi::Object>().Get("loadFromJSON")
             .As<Napi::Function>()
             .Call(
                 m_jsResourceCache.Value(),
                 {
                     Napi::String::New(env, jsonString),
-                    Napi::String::New(env, experienceId) // Pass experienceId
+                    Napi::String::New(env, experienceId) 
                 }
             );
     }
@@ -130,8 +130,9 @@ class ResourceCacheImpl
         }
         else
         {
+            // JS not ready yet, queue the JSON string (insert or update map entry)
             std::scoped_lock lock(m_pendingJsonMutex);
-            m_pendingJsonQueue.emplace_back(experienceId, jsonString); // Store pair in queue
+            m_pendingJsonQueue[experienceId] = jsonString; 
         }
     }
 
