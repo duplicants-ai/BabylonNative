@@ -1,4 +1,7 @@
 FILE(GLOB REFERENCE_IMAGES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "ReferenceImages/*")
+# Add model and texture files for ResourceCache
+FILE(GLOB MODEL_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "models/*")
+FILE(GLOB TEXTURE_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "textures/*")
 
 set(BABYLON_SCRIPTS
     "../node_modules/babylonjs-loaders/babylonjs.loaders.js"
@@ -14,8 +17,11 @@ set(DEPENDENCIES
 set(SCRIPTS
     "Scripts/experience.js"
     "Scripts/playground_runner.js"
-    "Scripts/validation_native.js"
-    "Scripts/config.json")
+    "Scripts/validation_native.js" 
+    "Scripts/config.json"
+    "Scripts/resources.json"
+    "Scripts/ResourceCache.js")
+
 
 if(APPLE)
     find_library(JAVASCRIPTCORE_LIBRARY JavaScriptCore)
@@ -109,9 +115,9 @@ endif()
 
 if(WIN32)
     set(WIN32_EXECUTABLE TRUE)
-    add_executable(Playground WIN32 ${REFERENCE_IMAGES} ${BABYLON_SCRIPTS} ${DEPENDENCIES} ${SCRIPTS} ${SOURCES} ${RESOURCE_FILES})
+    add_executable(Playground WIN32 ${REFERENCE_IMAGES} ${BABYLON_SCRIPTS} ${MODEL_FILES} ${TEXTURE_FILES} ${DEPENDENCIES} ${SCRIPTS} ${SOURCES} ${RESOURCE_FILES})
 else()
-    add_executable(Playground ${REFERENCE_IMAGES} ${BABYLON_SCRIPTS} ${DEPENDENCIES} ${SCRIPTS} ${SOURCES} ${RESOURCE_FILES})
+    add_executable(Playground ${REFERENCE_IMAGES} ${BABYLON_SCRIPTS} ${MODEL_FILES} ${TEXTURE_FILES} ${DEPENDENCIES} ${SCRIPTS} ${SOURCES} ${RESOURCE_FILES})
 endif()
 
 warnings_as_errors(Playground)
@@ -135,6 +141,7 @@ target_link_libraries(Playground
     PRIVATE NativeEngine
     PRIVATE NativeInput
     PRIVATE NativeOptimizations
+    PRIVATE ResourceCache
     PRIVATE ScriptLoader
     PRIVATE Window
     PRIVATE XMLHttpRequest
@@ -222,7 +229,12 @@ endif()
 if(WINDOWS_STORE)
     set_property(SOURCE ${SCRIPTS} ${BABYLON_SCRIPTS} ${DEPENDENCIES} PROPERTY VS_DEPLOYMENT_CONTENT 1)
     set_property(SOURCE ${SCRIPTS} ${BABYLON_SCRIPTS} ${DEPENDENCIES} PROPERTY VS_DEPLOYMENT_LOCATION "Scripts")
-        set_property(SOURCE ${REFERENCE_IMAGES} PROPERTY VS_DEPLOYMENT_LOCATION "ReferenceImages")
+    set_property(SOURCE ${REFERENCE_IMAGES} PROPERTY VS_DEPLOYMENT_LOCATION "ReferenceImages")
+    # Deploy model and texture files
+    set_property(SOURCE ${MODEL_FILES} PROPERTY VS_DEPLOYMENT_CONTENT 1)
+    set_property(SOURCE ${MODEL_FILES} PROPERTY VS_DEPLOYMENT_LOCATION "models")
+    set_property(SOURCE ${TEXTURE_FILES} PROPERTY VS_DEPLOYMENT_CONTENT 1)
+    set_property(SOURCE ${TEXTURE_FILES} PROPERTY VS_DEPLOYMENT_LOCATION "textures")
 else()
     foreach(SCRIPT ${SCRIPTS} ${BABYLON_SCRIPTS} ${DEPENDENCIES})
         get_filename_component(SCRIPT_NAME "${SCRIPT}" NAME)
@@ -240,6 +252,28 @@ else()
             COMMENT "Copying ${IMAGE_NAME}"
             MAIN_DEPENDENCY "${CMAKE_CURRENT_SOURCE_DIR}/${IMAGE}")
     endforeach()
+    
+    # Copy model files
+    foreach(MODEL ${MODEL_FILES})
+        get_filename_component(MODEL_NAME "${MODEL}" NAME)
+        add_custom_command(
+            OUTPUT "${CMAKE_CFG_INTDIR}/models/${MODEL_NAME}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/models"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/${MODEL}" "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/models/${MODEL_NAME}"
+            COMMENT "Copying ${MODEL_NAME}"
+            MAIN_DEPENDENCY "${CMAKE_CURRENT_SOURCE_DIR}/${MODEL}")
+    endforeach()
+    
+    # Copy texture files
+    foreach(TEXTURE ${TEXTURE_FILES})
+        get_filename_component(TEXTURE_NAME "${TEXTURE}" NAME)
+        add_custom_command(
+            OUTPUT "${CMAKE_CFG_INTDIR}/textures/${TEXTURE_NAME}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/textures"
+            COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/${TEXTURE}" "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/textures/${TEXTURE_NAME}"
+            COMMENT "Copying ${TEXTURE_NAME}"
+            MAIN_DEPENDENCY "${CMAKE_CURRENT_SOURCE_DIR}/${TEXTURE}")
+    endforeach()
 endif()
 
 set_property(TARGET Playground PROPERTY FOLDER Apps)
@@ -248,6 +282,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/../Dependencies PREFIX Scripts FIL
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${REFERENCE_IMAGES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SCRIPTS})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${MODEL_FILES})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${TEXTURE_FILES})
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Playground)
 
 set_property(TARGET Playground PROPERTY XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED YES)

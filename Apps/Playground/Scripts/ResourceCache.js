@@ -72,11 +72,18 @@ class ResourceCache {
                 );
                 break;
             case "model":
+                //const rootUrl = resource.url.substring(0, resource.url.lastIndexOf("/") + 1);
+                //const filename = resource.url.substring(resource.url.lastIndexOf("/") + 1);
+                //console.log(`Loading model - ID: ${resource.id}, Root URL: ${rootUrl}, Filename: ${filename}\n`);
                 task = assetsManager.addMeshTask(
                     resource.id,
                     "",
-                    resource.url.substring(0, resource.url.lastIndexOf("/")),
-                    resource.url.substring(resource.url.lastIndexOf("/") + 1)
+                    "",
+                    resource.url
+                    //while this is supposed to be correct, for some reason it wants the full path so that is what we give it
+                    //TODO investigate why this is the case
+                    // resource.url.substring(0, resource.url.lastIndexOf("/")) + 1,
+                    // resource.url.substring(resource.url.lastIndexOf("/") + 1)
                 );
                 break;
             case "audio":
@@ -118,7 +125,7 @@ class ResourceCache {
                     originalOnSuccess(taskResult);
                 }
                 
-                console.log(`Resource loaded: ${resource.id}`);
+                console.log(`Resource loaded: ${resource.id}\n`);
                 
                 // Store resource in scene
                 this._storeResourceInScene(resource.id, taskResult);

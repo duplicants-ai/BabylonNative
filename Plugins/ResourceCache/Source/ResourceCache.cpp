@@ -131,18 +131,32 @@ class ResourceCacheImpl
     }
 
     // Initialize function for the plugin
-    void Initialize(Napi::Env env)
-    {
+void Initialize(Napi::Env env)
+{
+    // Create a function for initializing ResourceCache once BABYLON exists
+    Napi::Function initFunction = Napi::Function::New(env, [](const Napi::CallbackInfo& info) {
+        auto env = info.Env();
         auto global = env.Global();
         auto babylon = global.Get("BABYLON").As<Napi::Object>();
         
-        // Add helper function to access the ResourceCache
+        // Add the getResourceCache function to BABYLON
         babylon.Set("getResourceCache", Napi::Function::New(env, [](const Napi::CallbackInfo& info) {
             auto env = info.Env();
             auto global = env.Global();
             auto babylon = global.Get("BABYLON").As<Napi::Object>();
             
-            return babylon.Get("_resourceCache");
+            if (babylon.Has("_resourceCache")) {
+                return babylon.Get("_resourceCache");
+            }
+            
+            return env.Null();
         }));
-    }
+        
+        return env.Undefined();
+    });
+    
+    // Register our initialization function globally so it can be called from JS
+    auto global = env.Global();
+    global.Set("__ResourceCacheInitialize", initFunction);
+}
 }

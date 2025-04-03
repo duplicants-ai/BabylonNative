@@ -4,6 +4,7 @@
 #include <Babylon/ScriptLoader.h>
 #include <Babylon/Plugins/NativeEngine.h>
 #include <Babylon/Plugins/NativeOptimizations.h>
+#include <Babylon/Plugins/ResourceCache.h>
 #include <Babylon/Plugins/NativeXr.h>
 #include <Babylon/Polyfills/Console.h>
 #include <Babylon/Polyfills/Window.h>
@@ -403,6 +404,8 @@ void App::RestartRuntime(Windows::Foundation::Rect bounds)
 
         Babylon::Plugins::NativeXr::Initialize(env);
 
+        Babylon::Plugins::ResourceCache::Initialize(env);
+
         m_nativeInput = &Babylon::Plugins::NativeInput::CreateForJavaScript(env);
     });
 
@@ -414,6 +417,9 @@ void App::RestartRuntime(Windows::Foundation::Rect bounds)
     loader.LoadScript("app:///Scripts/babylonjs.loaders.js");
     loader.LoadScript("app:///Scripts/babylonjs.materials.js");
     loader.LoadScript("app:///Scripts/babylon.gui.js");
+    
+    // Load ResourceCache.js after Babylon.js libraries but before experience.js
+    loader.LoadScript("app:///Scripts/ResourceCache.js");
 
     if (m_files == nullptr)
     {
