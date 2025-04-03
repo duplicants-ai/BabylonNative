@@ -257,4 +257,12 @@ class ResourceCache {
             configurable: true
         });
     }
+
+    // Signal C++ that the JS object is now ready
+    if (typeof __ResourceCacheSetJsReady === 'function') {
+        console.log("ResourceCache.js: Signaling C++ that JS object is ready.");
+        __ResourceCacheSetJsReady(); 
+    } else {
+        console.error("ResourceCache.js: Cannot signal C++ readiness, __ResourceCacheSetJsReady not found.");
+    }
 })();
