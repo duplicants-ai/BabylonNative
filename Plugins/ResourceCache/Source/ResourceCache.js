@@ -5,22 +5,32 @@ class ResourceCache {
     constructor() {
         this._resources = new Map();
         this._eventHandlers = new Map();
-        this._scene = null; 
-        this._pendingResources = null; 
+        this._scene = null;
+        this._pendingLoads = {}; // Stores { experienceId: resources[] } for loads attempted before scene was set
         this._loadingManifests = {}; // Track loading progress per experienceId
     }
     
     // Set the scene to be used by the ResourceCache
     setScene(scene) {
+        if (this._scene === scene) {
+            return this; // No change
+        }
+        console.log("ResourceCache: Scene set.");
         this._scene = scene;
         
-        // If we have pending resources that were attempted to be loaded before a scene was available,
-        // load them now that we have a scene
-        if (this._pendingResources) {
-            console.log(`Loading ${this._pendingResources.length} pending resources now that scene is available`);
-            const resources = this._pendingResources;
-            this._pendingResources = null;
-            this._loadResources(resources);
+        // Process any pending loads that were waiting for a scene
+        const pendingExperienceIds = Object.keys(this._pendingLoads);
+        if (pendingExperienceIds.length > 0) {
+            console.log(`ResourceCache: Processing ${pendingExperienceIds.length} pending manifest loads now that scene is available.`);
+            pendingExperienceIds.forEach(experienceId => {
+                const resources = this._pendingLoads[experienceId];
+                if (resources) {
+                     console.log(`ResourceCache: Loading ${resources.length} pending resources for experience ${experienceId}`);
+                    this._loadResources(resources, experienceId);
+                }
+            });
+            // Clear the pending queue
+            this._pendingLoads = {};
         }
         
         return this; // For method chaining
@@ -57,8 +67,8 @@ class ResourceCache {
         // Check if we have a scene
         if (!this._scene) {
             console.warn(`ResourceCache: No scene set for experience ${experienceId}. Resources will be queued until a scene is provided.`);
-            // Store resources for later loading (associate with experienceId if needed, though current logic handles global queue)
-            this._pendingResources = resources; // Consider making this per-experience if needed
+            // Store resources associated with the experienceId for later loading
+            this._pendingLoads[experienceId] = resources; 
             return;
         }
         
