@@ -20,9 +20,68 @@ const imageCapture = false;
 const imageTracking = false;
 const readPixels = false;
 
+const useResourceCache = true;
+
+// Setup resources using the ResourceCache plugin
+function SetupResourceCacheAsync(scene) {
+    return new Promise((resolve) => {
+        if (useResourceCache) {
+            // Get the resource cache
+            const resourceCache = BABYLON.getResourceCache();
+            
+            // Set the scene for the ResourceCache to use
+            resourceCache.setScene(scene);
+            
+            // Load the resources.json file
+            BABYLON.Tools.LoadFile("app:///Scripts/resources.json", (jsonText) => {
+                // Parse the resources.json to get the count for tracking loaded resources
+                const resourcesObj = JSON.parse(jsonText);
+                const totalResources = resourcesObj.resources.length;
+                let loadedCount = 0;
+                
+                // Set up event listener for when resources are loaded
+                resourceCache.on("resourceLoaded", (data) => {
+                    console.log(`Exp Resource loaded: ${data.id}\n`);
+                    loadedCount++;
+                    
+                    // When all resources are loaded, set up the scene
+                    if (loadedCount === totalResources) {
+                        console.log("All resources loaded!");
+                        resolve();
+                    }
+                });
+                
+                // Load the resources
+                resourceCache.loadFromJSON(jsonText);
+            });
+        } else {
+            // Fallback to just creating a box if not using ResourceCache
+            BABYLON.Mesh.CreateBox("box1", 0.2, scene);
+            resolve();
+        }
+    }).then(() => {
+        if (useResourceCache) {
+            // Get the resource cache
+            const resourceCache = BABYLON.getResourceCache();
+            
+            // Create a ground plane with the ground texture
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 6, height: 6}, scene);
+            const groundMaterial = new BABYLON.StandardMaterial("groundMaterial", scene);
+            groundMaterial.diffuseTexture = resourceCache.getResource("groundTexture");
+            ground.material = groundMaterial;
+            
+            // The duck model should be in the scene
+            const duckModel = resourceCache.getResource("duckModel");
+            if (duckModel && duckModel.length > 0) {
+                duckModel[0].position.y = 0.5;
+            }
+        }
+    });
+}
+
 function CreateBoxAsync(scene) {
-    BABYLON.Mesh.CreateBox("box1", 0.2, scene);
-    return Promise.resolve();
+    // For backward compatibility, keep the function but use ResourceCache
+    return SetupResourceCacheAsync(scene);
 }
 
 function CreateSpheresAsync(scene) {

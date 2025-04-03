@@ -33,3 +33,7 @@ endif()
 if(BABYLON_NATIVE_PLUGIN_NATIVEXR AND (WIN32 OR ANDROID OR IOS))
     add_subdirectory(NativeXr)
 endif()
+
+if(BABYLON_NATIVE_PLUGIN_RESOURCECACHE)
+    add_subdirectory(ResourceCache)
+endif()

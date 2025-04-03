@@ -1,0 +1,19 @@
+{
+  "resources": [
+    {
+      "id": "duckTexture",
+      "type": "texture",
+      "url": "app:///textures/duck.png"
+    },
+    {
+      "id": "groundTexture",
+      "type": "texture",
+      "url": "app:///textures/ground.jpg"
+    },
+    {
+      "id": "duckModel",
+      "type": "model",
+      "url": "app:///models/Duck.glb"
+    }
+  ]
+}
