@@ -4,10 +4,12 @@
 #include <arcana/threading/task.h>
 #include <napi/napi.h>
 #include <memory>
-#include <vector> // Added for queue
-#include <mutex>  // Added for synchronization
-#include <atomic> // Added for atomic flag
-#include <unordered_map> // Added for map
+#include <vector>
+#include <mutex>
+#include <atomic>
+#include <unordered_map>
+#include <string>
+#include <utility> // For std::pair
 
 #ifndef ENV_UNUSED
 #define ENV_UNUSED(x) (void)(x);
@@ -25,35 +27,36 @@ static std::mutex s_mapMutex;
 class ResourceCacheImpl
     {
     private:
-        Babylon::JsRuntime& m_runtime; // Keep runtime reference here
+        Babylon::JsRuntime& m_runtime;
         Napi::ObjectReference m_jsResourceCache;
-        std::atomic<bool> m_jsReady{false}; // Flag to track JS readiness
-        std::vector<std::string> m_pendingJson; // Queue for pending JSON loads
-        std::mutex m_pendingJsonMutex; // Mutex to protect the queue
+        std::atomic<bool> m_jsReady{false};
+        // Queue now stores pairs of (experienceId, jsonString)
+        std::vector<std::pair<std::string, std::string>> m_pendingJsonQueue; 
+        std::mutex m_pendingJsonMutex;
 
     public:
         ResourceCacheImpl(Babylon::JsRuntime& runtime);
         ~ResourceCacheImpl() = default;
 
-        // Getter needed for destructor map cleanup
         Babylon::JsRuntime& GetRuntime() { return m_runtime; }
 
         void SetJsObjectReady(Napi::Env env);
         void ProcessPendingJsonQueue(Napi::Env env);
-        void DispatchLoadResourcesFromJSON(Napi::Env env, const std::string& jsonString);
+        // Updated signatures to include experienceId
+        void DispatchLoadResourcesFromJSON(Napi::Env env, const std::string& experienceId, const std::string& jsonString);
         void SetupJavaScriptImplementation(Napi::Env env);
-        void LoadResourcesFromJSON(const std::string& jsonString);
+        void LoadResourcesFromJSON(const std::string& experienceId, const std::string& jsonString); 
         void UpdateResource(const std::string& id, const std::string& newUrl);
         void SetScene(Napi::Value scene);
         Napi::Value GetJSObject(Napi::Env env) const;
-    }; // End ResourceCacheImpl class declaration
+    };
 
     // --- Start ResourceCacheImpl Member Function Definitions ---
 
     ResourceCacheImpl::ResourceCacheImpl(Babylon::JsRuntime& runtime)
         : m_runtime{runtime}
     {
-        // Constructor body can be empty or contain initialization logic
+        // Constructor
     }
 
     void ResourceCacheImpl::SetJsObjectReady(Napi::Env env)
@@ -64,88 +67,82 @@ class ResourceCacheImpl
             auto babylon = global.Get("BABYLON").As<Napi::Object>();
             if (babylon.Has("_resourceCache")) {
                 m_jsResourceCache = Napi::Persistent(babylon.Get("_resourceCache").As<Napi::Object>());
-                m_jsReady = true; // Set flag AFTER successfully getting the object
-                ProcessPendingJsonQueue(env); // Process queue now that JS is ready
+                m_jsReady = true;
+                ProcessPendingJsonQueue(env);
             } else {
                  Napi::Error::New(env, "SetJsObjectReady called but BABYLON._resourceCache not found.").ThrowAsJavaScriptException();
             }
         }
-        catch (const Napi::Error& e)
-        {
-             Napi::Error::New(env, std::string("Napi Error in SetJsObjectReady: ") + e.what()).ThrowAsJavaScriptException();
-        }
-        catch (const std::exception& e)
-        {
-             Napi::Error::New(env, std::string("Std Error in SetJsObjectReady: ") + e.what()).ThrowAsJavaScriptException();
-        }
+        catch (const Napi::Error& e) { Napi::Error::New(env, std::string("Napi Error in SetJsObjectReady: ") + e.what()).ThrowAsJavaScriptException(); }
+        catch (const std::exception& e) { Napi::Error::New(env, std::string("Std Error in SetJsObjectReady: ") + e.what()).ThrowAsJavaScriptException(); }
     }
 
     void ResourceCacheImpl::ProcessPendingJsonQueue(Napi::Env env)
     {
-        std::vector<std::string> pendingToProcess;
+        std::vector<std::pair<std::string, std::string>> pendingToProcess;
         {
             std::scoped_lock lock(m_pendingJsonMutex);
-            pendingToProcess = std::move(m_pendingJson);
-            m_pendingJson.clear();
+            pendingToProcess = std::move(m_pendingJsonQueue); // Use the renamed queue
+            m_pendingJsonQueue.clear();
         }
 
         if (!pendingToProcess.empty())
         {
-            for (const auto& jsonString : pendingToProcess)
+            // Dispatch each pending pair
+            for (const auto& pair : pendingToProcess)
             {
-                DispatchLoadResourcesFromJSON(env, jsonString);
+                DispatchLoadResourcesFromJSON(env, pair.first, pair.second); // Pass both experienceId and jsonString
             }
         }
     }
 
-    void ResourceCacheImpl::DispatchLoadResourcesFromJSON(Napi::Env env, const std::string& jsonString)
+    // Updated definition
+    void ResourceCacheImpl::DispatchLoadResourcesFromJSON(Napi::Env env, const std::string& experienceId, const std::string& jsonString)
     {
         // Call the loadFromJSON method on our cached JS object
+        // Pass experienceId as the third argument to the JS function (adjust JS accordingly)
         m_jsResourceCache.Value().As<Napi::Object>().Get("loadFromJSON")
             .As<Napi::Function>()
             .Call(
                 m_jsResourceCache.Value(),
-                {Napi::String::New(env, jsonString)}
+                {
+                    Napi::String::New(env, jsonString),
+                    Napi::String::New(env, experienceId) // Pass experienceId
+                }
             );
     }
 
     void ResourceCacheImpl::SetupJavaScriptImplementation(Napi::Env env)
     {
-        // Load the ResourceCache JavaScript implementation
         ENV_UNUSED(env)
         Babylon::ScriptLoader loader{m_runtime};
         loader.LoadScript("app:///Scripts/ResourceCache.js");
     }
 
-    void ResourceCacheImpl::LoadResourcesFromJSON(const std::string& jsonString)
+    // Updated definition
+    void ResourceCacheImpl::LoadResourcesFromJSON(const std::string& experienceId, const std::string& jsonString)
     {
         if (m_jsReady)
         {
-            // JS is ready, dispatch immediately
-            m_runtime.Dispatch([this, jsonString](Napi::Env env) {
-                DispatchLoadResourcesFromJSON(env, jsonString);
+            m_runtime.Dispatch([this, experienceId, jsonString](Napi::Env env) { // Capture experienceId
+                DispatchLoadResourcesFromJSON(env, experienceId, jsonString);
             });
         }
         else
         {
-            // JS not ready yet, queue the JSON string
             std::scoped_lock lock(m_pendingJsonMutex);
-            m_pendingJson.push_back(jsonString);
+            m_pendingJsonQueue.emplace_back(experienceId, jsonString); // Store pair in queue
         }
     }
 
     void ResourceCacheImpl::UpdateResource(const std::string& id, const std::string& newUrl)
     {
         m_runtime.Dispatch([this, id, newUrl](Napi::Env env) {
-            // Call the updateResource method on our cached JS object
             m_jsResourceCache.Value().As<Napi::Object>().Get("updateResource")
                 .As<Napi::Function>()
                 .Call(
                     m_jsResourceCache.Value(),
-                    {
-                        Napi::String::New(env, id),
-                        Napi::String::New(env, newUrl)
-                    }
+                    { Napi::String::New(env, id), Napi::String::New(env, newUrl) }
                 );
         });
     }
@@ -154,23 +151,19 @@ class ResourceCacheImpl
     {
         m_runtime.Dispatch([this, scene](Napi::Env env) {
             ENV_UNUSED(env)
-            // Call the setScene method on our cached JS object
             m_jsResourceCache.Value().As<Napi::Object>().Get("setScene")
                 .As<Napi::Function>()
-                .Call(
-                    m_jsResourceCache.Value(), {scene}
-                );
+                .Call( m_jsResourceCache.Value(), {scene} );
         });
     }
 
     Napi::Value ResourceCacheImpl::GetJSObject(Napi::Env env) const
     {
         ENV_UNUSED(env)
-        // Ensure the JS object reference is valid before returning its value
         if (!m_jsResourceCache.IsEmpty()) {
              return m_jsResourceCache.Value();
         }
-        return env.Null(); // Return null if the JS object isn't ready/valid
+        return env.Null();
     }
 
     // --- End ResourceCacheImpl Member Function Definitions ---
@@ -179,25 +172,19 @@ class ResourceCacheImpl
     // --- Start ResourceCache Public Interface Implementation ---
 
     ResourceCache::ResourceCache(Babylon::JsRuntime& runtime)
-        : m_impl{ std::make_unique<ResourceCacheImpl>(runtime) } // Only initialize m_impl
+        : m_impl{ std::make_unique<ResourceCacheImpl>(runtime) }
     {
-        // Register instance in the map using the passed runtime parameter
         std::scoped_lock lock(s_mapMutex);
-        s_runtimeToImplMap[&runtime] = m_impl.get(); // Use 'runtime' parameter as key
+        s_runtimeToImplMap[&runtime] = m_impl.get();
     }
 
     ResourceCache::~ResourceCache()
     {
-        // Unregister instance from the map using the runtime stored in m_impl
-        // Note: This assumes m_impl is still valid. If m_impl could be null here,
-        // add a check.
         if (m_impl) {
              std::scoped_lock lock(s_mapMutex);
-             // Get the runtime reference from the impl before erasing
              JsRuntime& runtimeRef = m_impl->GetRuntime();
              s_runtimeToImplMap.erase(&runtimeRef);
         }
-        // Default unique_ptr destructor handles m_impl cleanup
     }
 
     void ResourceCache::SetScene(Napi::Value scene)
@@ -205,9 +192,10 @@ class ResourceCacheImpl
         m_impl->SetScene(scene);
     }
 
-    void ResourceCache::LoadResourcesFromJSON(const std::string& jsonString)
+    // Updated definition
+    void ResourceCache::LoadResourcesFromJSON(const std::string& experienceId, const std::string& jsonString)
     {
-        m_impl->LoadResourcesFromJSON(jsonString);
+        m_impl->LoadResourcesFromJSON(experienceId, jsonString);
     }
 
     void ResourceCache::UpdateResource(const std::string& id, const std::string& newUrl)
@@ -243,11 +231,8 @@ class ResourceCacheImpl
             } else {
                  Napi::Error::New(env, "__ResourceCacheSetJsReady: Could not find ResourceCacheImpl instance for current JsRuntime.").ThrowAsJavaScriptException();
             }
-        } catch (const Napi::Error& e) {
-             Napi::Error::New(env, std::string("Napi Error in SetJsReadyCallback: ") + e.what()).ThrowAsJavaScriptException();
-        } catch (const std::exception& e) {
-             Napi::Error::New(env, std::string("Std Error in SetJsReadyCallback: ") + e.what()).ThrowAsJavaScriptException();
-        }
+        } catch (const Napi::Error& e) { Napi::Error::New(env, std::string("Napi Error in SetJsReadyCallback: ") + e.what()).ThrowAsJavaScriptException(); }
+        catch (const std::exception& e) { Napi::Error::New(env, std::string("Std Error in SetJsReadyCallback: ") + e.what()).ThrowAsJavaScriptException(); }
         return env.Undefined();
     }
 
