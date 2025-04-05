@@ -5,55 +5,85 @@ class ResourceCache {
     constructor() {
         this._resources = new Map();
         this._eventHandlers = new Map();
-        this._scene = null; // Store scene reference
-        this._pendingResources = null; // For resources loaded before scene is set
+        this._scene = null;
+        this._pendingLoads = {}; // Stores { experienceId: resources[] } for loads attempted before scene was set
+        this._loadingManifests = {}; // Track loading progress per experienceId
     }
     
     // Set the scene to be used by the ResourceCache
     setScene(scene) {
+        if (this._scene === scene) {
+            return this; // No change
+        }
+        console.log("ResourceCache: Scene set.");
         this._scene = scene;
         
-        // If we have pending resources that were attempted to be loaded before a scene was available,
-        // load them now that we have a scene
-        if (this._pendingResources) {
-            console.log(`Loading ${this._pendingResources.length} pending resources now that scene is available`);
-            const resources = this._pendingResources;
-            this._pendingResources = null;
-            this._loadResources(resources);
+        // Process any pending loads that were waiting for a scene
+        const pendingExperienceIds = Object.keys(this._pendingLoads);
+        if (pendingExperienceIds.length > 0) {
+            console.log(`ResourceCache: Processing ${pendingExperienceIds.length} pending manifest loads now that scene is available.`);
+            pendingExperienceIds.forEach(experienceId => {
+                const resources = this._pendingLoads[experienceId];
+                if (resources) {
+                     console.log(`ResourceCache: Loading ${resources.length} pending resources for experience ${experienceId}`);
+                    this._loadResources(resources, experienceId);
+                }
+            });
+            // Clear the pending queue
+            this._pendingLoads = {};
         }
         
         return this; // For method chaining
     }
     
-    // Load resources from JSON string
-    loadFromJSON(jsonString) {
+    // Load resources from JSON string for a specific experience
+    loadFromJSON(jsonString, experienceId) { // Added experienceId parameter
+        if (!experienceId) {
+            console.error("ResourceCache.loadFromJSON called without an experienceId.");
+            return;
+        }
+        console.log(`ResourceCache: Starting loadFromJSON for experience: ${experienceId}`);
+
         const resources = JSON.parse(jsonString).resources;
+        if (!resources || resources.length === 0) {
+             console.log(`ResourceCache: No resources found in JSON for experience: ${experienceId}. Reporting completion immediately.`);
+             // If no resources, report completion immediately
+             this._checkManifestLoadComplete(experienceId, 0); 
+             return;
+        }
         
         // Store resource definitions
         resources.forEach(resource => {
             this._resources.set(resource.id, resource);
         });
         
+        // Initialize tracking for this manifest load
+        this._loadingManifests[experienceId] = {
+            total: resources.length,
+            loaded: 0,
+            failed: 0
+        };
+
         // Check if we have a scene
         if (!this._scene) {
-            console.warn("No scene set. Resources will be queued until a scene is provided.");
-            // Store resources for later loading
-            this._pendingResources = resources;
+            console.warn(`ResourceCache: No scene set for experience ${experienceId}. Resources will be queued until a scene is provided.`);
+            // Store resources associated with the experienceId for later loading
+            this._pendingLoads[experienceId] = resources; 
             return;
         }
         
         // Load resources with the available scene
-        this._loadResources(resources);
+        this._loadResources(resources, experienceId); // Pass experienceId
     }
     
     // Internal method to load resources using the current scene
-    _loadResources(resources) {
+    _loadResources(resources, experienceId) { // Added experienceId
         // Create an AssetManager for the current scene
         const assetsManager = new BABYLON.AssetsManager(this._scene);
         
         // Create tasks for each resource
         resources.forEach(resource => {
-            this._createAssetTask(assetsManager, resource);
+            this._createAssetTask(assetsManager, resource, experienceId); // Pass experienceId
         });
         
         // Start loading
@@ -61,7 +91,7 @@ class ResourceCache {
     }
     
     // Create appropriate asset task based on resource type
-    _createAssetTask(assetsManager, resource) {
+    _createAssetTask(assetsManager, resource, experienceId) { // Added experienceId
         let task;
         
         switch (resource.type) {
@@ -126,20 +156,67 @@ class ResourceCache {
                 // Emit event
                 this._emit("resourceLoaded", {
                     id: resource.id,
-                    type: resource.type
+                    type: resource.type,
+                    experienceId: experienceId // Include experienceId in event data
                 });
+                // Update manifest loading progress
+                this._updateManifestProgress(experienceId, true);
             };
             
             // Add error handler
             task.onError = (task, message) => {
-                console.error(`Failed to load resource ${resource.id}: ${message}`);
+                console.error(`Failed to load resource ${resource.id} for experience ${experienceId}: ${message}`);
                 
                 this._emit("resourceError", {
                     id: resource.id,
-                    error: message
+                    error: message,
+                    experienceId: experienceId // Include experienceId in event data
                 });
+                 // Update manifest loading progress
+                this._updateManifestProgress(experienceId, false);
             };
+        } else {
+             // If no task was created (e.g., unknown type), count it as failed for manifest tracking
+             console.warn(`ResourceCache: Could not create task for resource ${resource.id} (type: ${resource.type}) in experience ${experienceId}. Counting as failed.`);
+             this._updateManifestProgress(experienceId, false);
         }
+    }
+
+    // Track manifest loading progress and emit completion event
+    _updateManifestProgress(experienceId, success) {
+        const manifest = this._loadingManifests[experienceId];
+        if (!manifest) {
+            console.warn(`ResourceCache: Received progress update for unknown manifest: ${experienceId}`);
+            return;
+        }
+
+        if (success) {
+            manifest.loaded++;
+        } else {
+            manifest.failed++;
+        }
+
+        // Check if all resources for this manifest are accounted for
+        if (manifest.loaded + manifest.failed === manifest.total) {
+            this._checkManifestLoadComplete(experienceId, manifest.failed);
+        }
+    }
+
+    // Check and emit manifest load completion
+    _checkManifestLoadComplete(experienceId, failureCount) {
+         const manifest = this._loadingManifests[experienceId];
+         if (!manifest) return; // Should not happen if called correctly
+
+         const overallSuccess = failureCount === 0;
+         console.log(`ResourceCache: Manifest load complete for experience ${experienceId}. Success: ${overallSuccess} (${manifest.loaded}/${manifest.total} loaded, ${failureCount} failed)`);
+            
+         this._emit("manifestLoadComplete", {
+             experienceId: experienceId,
+             success: overallSuccess
+         });
+
+         // Clean up tracking for this manifest
+         delete this._loadingManifests[experienceId];
     }
     
     // Update a resource
@@ -256,5 +333,13 @@ class ResourceCache {
             },
             configurable: true
         });
+    }
+
+    // Signal C++ that the JS object is now ready
+    if (typeof __ResourceCacheSetJsReady === 'function') {
+        console.log("ResourceCache.js: Signaling C++ that JS object is ready.");
+        __ResourceCacheSetJsReady(); 
+    } else {
+        console.error("ResourceCache.js: Cannot signal C++ readiness, __ResourceCacheSetJsReady not found.");
     }
 })();

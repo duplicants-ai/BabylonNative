@@ -19,8 +19,8 @@ namespace Babylon::Plugins::ResourceCache
         // Set the scene to be used by the ResourceCache
         void SetScene(Napi::Value scene);
 
-        // Load resources from JSON
-        void LoadResourcesFromJSON(const std::string& jsonString);
+        // Load resources from JSON for a specific experience
+        void LoadResourcesFromJSON(const std::string& experienceId, const std::string& jsonString);
         
         // Update a specific resource
         void UpdateResource(const std::string& id, const std::string& newUrl);
